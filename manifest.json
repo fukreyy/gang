@@ -2,24 +2,25 @@
   "name": "Fukrey",
   "short_name": "Fukrey",
   "description": "Your Crazy Entertainment Hub",
-  "start_url": "/",
+  "start_url": "/gang/",
+  "scope": "/gang/",
   "display": "standalone",
   "background_color": "#030712",
   "theme_color": "#f97316",
   "orientation": "any",
   "icons": [
     {
-      "src": "/icon-192x192.png",
+      "src": "/gang/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/gang/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/gang/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

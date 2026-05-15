@@ -1,5 +1,5 @@
-const CACHE = 'fukrey-v1';
-const ASSETS = ['/', '/index.html'];
+const CACHE = 'fukrey-v2';
+const ASSETS = ['/gang/', '/gang/index.html'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -22,7 +22,7 @@ self.addEventListener('fetch', e => {
         caches.open(CACHE).then(c => c.put(e.request, clone));
         return res;
       })
-      .catch(() => caches.match(e.request).then(r => r || caches.match('/index.html')))
+      .catch(() => caches.match(e.request).then(r => r || caches.match('/gang/index.html')))
   );
 });
 
@@ -31,8 +31,8 @@ self.addEventListener('push', e => {
   const data = e.data?.json() ?? {};
   e.waitUntil(self.registration.showNotification(data.title || 'Fukrey', {
     body: data.body || 'New content available!',
-    icon: '/icon-192x192.png',
-    badge: '/favicon-32x32.png',
+    icon: '/gang/icon-192x192.png',
+    badge: '/gang/favicon-32x32.png',
     image: data.thumbnail || undefined,
     data: { media_id: data.media_id },
     vibrate: [200, 100, 200],
@@ -43,8 +43,8 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = e.notification.data?.media_id
-    ? `/?media=${e.notification.data.media_id}`
-    : '/';
+    ? `/gang/?media=${e.notification.data.media_id}`
+    : '/gang/';
   e.waitUntil(clients.matchAll({ type: 'window' }).then(ws => {
     const w = ws.find(w => w.url.includes(self.location.origin));
     return w ? w.focus() : clients.openWindow(url);
