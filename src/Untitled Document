@@ -1,0 +1,43 @@
+const URL_ENDPOINT = "https://ik.imagekit.io/brohit
+";   // ← from Step 2
+const PUBLIC_KEY = "public_dQ77UF5hoVU4LmJYI3Xpo5XG/Bw=";                       // ← from Step 2
+
+export async function uploadToImageKit(file: File) {
+  // Step 1: Get auth signature (for testing, using ImageKit's demo)
+  const authResponse = await fetch(
+    "https://www.imagekit.io/api/v1/auth"  // ⚠️ demo only
+  );
+  const auth = await authResponse.json();
+
+  // Step 2: Upload file
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("fileName", file.name);
+  formData.append("publicKey", PUBLIC_KEY);
+  formData.append("signature", auth.signature);
+  formData.append("expire", auth.expire);
+  formData.append("token", auth.token);
+  formData.append("folder", "/uploads");
+
+  const response = await fetch(
+    "https://upload.imagekit.io/api/v1/files/upload",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("ImageKit error:", data);
+    throw new Error(data.message || "Upload failed");
+  }
+
+  return {
+    url: data.url,
+    fileId: data.fileId,
+    type: data.fileType,  // "image" or "non-image"
+    name: data.name,
+  };
+}
