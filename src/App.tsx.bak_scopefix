@@ -1,18 +1,5 @@
 import Hls from 'hls.js';
 import { useState, useEffect, useRef, useMemo } from 'react';
-
-// Global helper: convert Cloudinary HLS URL → MP4 fallback
-const toMp4Url = (url: string): string => {
-  if (!url) return '';
-  if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
-    return url
-      .replace(/\/sp_hd\//g, "/")
-      .replace(/\.m3u8(\?.*)?$/i, ".mp4$1")
-      .replace(/\.(webm|mkv|avi|mov)(\?.*)?$/i, ".mp4$2");
-  }
-  return url;
-};
-
     import { cn } from './utils/cn';
     import { uploadToCloudinary } from './cloudinary';
     import { supabase } from './supabase';
@@ -446,6 +433,18 @@ const ANIME_PROVIDERS = [
         if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
           return url.replace("/upload/", "/upload/sp_hd/").replace(/\.(mp4|webm|mkv|avi|mov)$/i, ".m3u8");
         }
+
+      const toMp4Url = (url: string): string => {
+        if (!url) return '';
+        if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
+          // strip /sp_hd/ transformation and force .mp4 extension
+          return url
+            .replace(/\/sp_hd\//g, "/")
+            .replace(/\.m3u8(\?.*)?$/i, ".mp4$1")
+            .replace(/\.(webm|mkv|avi|mov)(\?.*)?$/i, ".mp4$2");
+        }
+        return url;
+      };
         return url;
       };
       const [isPlaying, setIsPlaying] = useState(false);

@@ -1,18 +1,5 @@
 import Hls from 'hls.js';
 import { useState, useEffect, useRef, useMemo } from 'react';
-
-// Global helper: convert Cloudinary HLS URL → MP4 fallback
-const toMp4Url = (url: string): string => {
-  if (!url) return '';
-  if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
-    return url
-      .replace(/\/sp_hd\//g, "/")
-      .replace(/\.m3u8(\?.*)?$/i, ".mp4$1")
-      .replace(/\.(webm|mkv|avi|mov)(\?.*)?$/i, ".mp4$2");
-  }
-  return url;
-};
-
     import { cn } from './utils/cn';
     import { uploadToCloudinary } from './cloudinary';
     import { supabase } from './supabase';
@@ -567,47 +554,29 @@ const ANIME_PROVIDERS = [
       useEffect(() => {
         const video = videoRef.current;
         if (!video || !currentVideoSrc) return;
-
-        // Reset video element fully (fixes re-play issue)
-        try { video.pause(); } catch {}
-        video.removeAttribute('src');
-        try { video.load(); } catch {}
-
-        let hls: Hls | null = null;
-        const mp4Fallback = toMp4Url(currentVideoSrc);
-
-        const fallbackToMp4 = () => {
-          if (!mp4Fallback || video.src === mp4Fallback) return;
-          console.log("🎬 HLS failed, falling back to MP4:", mp4Fallback);
-          try { hls?.destroy(); } catch {}
-          video.src = mp4Fallback;
-          video.play().catch(() => {});
-        };
-
-        if (Hls.isSupported() && currentVideoSrc.includes(".m3u8")) {
-          hls = new Hls();
+        setIsVideoLoading(true);
+        if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+        if (currentVideoSrc.includes(".m3u8") && Hls.isSupported()) {
+          const hls = new Hls();
+          hlsRef.current = hls;
           hls.loadSource(currentVideoSrc);
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-          hls.on(Hls.Events.ERROR, (_e, data) => {
-            if (data.fatal) { console.warn("HLS fatal:", data.type, data.details); fallbackToMp4(); }
-          });
         } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
           video.src = currentVideoSrc;
-          video.addEventListener("error", fallbackToMp4, { once: true });
           video.play().catch(() => {});
         } else {
-          video.src = mp4Fallback || currentVideoSrc;
+          video.src = currentVideoSrc;
           video.play().catch(() => {});
         }
-        return () => { try { hls?.destroy(); } catch {} };
+        return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
       }, [currentVideoSrc]);
 
       // ─── Back Button (SPA history) ──────────────────────────────────────────────
       useEffect(() => {
         const handlePopState = (e: PopStateEvent) => {
           const nav = e.state?.nav || 'home';
-          if (showVideoPlayer) { setShowVideoPlayer(false); setCurrentVideoSrc('');  setIsPlaying(false); setCurrentEpisode(null); window.history.pushState({ nav }, '', '#' + encodeURIComponent(nav)); return; }
+          if (showVideoPlayer) { setShowVideoPlayer(false); setIsPlaying(false); setCurrentEpisode(null); window.history.pushState({ nav }, '', '#' + encodeURIComponent(nav)); return; }
           if (showEpisodeManager) { setShowEpisodeManager(false); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
           if (showUploadModal) { setShowUploadModal(false); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
           if (showEditModal) { setShowEditModal(false); setEditingMedia(null); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
@@ -1417,7 +1386,7 @@ const isSelectedSeries = useMemo(() => {
           {/* ── Video Player ── */}
           {showVideoPlayer && selectedMedia && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black p-0 sm:p-4">
-              <button onClick={() => { setShowVideoPlayer(false); setCurrentVideoSrc('');  setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); }}
+              <button onClick={() => { setShowVideoPlayer(false); setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); }}
                 className="absolute top-4 right-4 z-50 w-12 h-12 bg-gray-800/80 rounded-full flex items-center justify-center hover:bg-gray-700">
                 <CloseIcon />
               </button>

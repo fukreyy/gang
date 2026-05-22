@@ -1,18 +1,5 @@
 import Hls from 'hls.js';
 import { useState, useEffect, useRef, useMemo } from 'react';
-
-// Global helper: convert Cloudinary HLS URL → MP4 fallback
-const toMp4Url = (url: string): string => {
-  if (!url) return '';
-  if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
-    return url
-      .replace(/\/sp_hd\//g, "/")
-      .replace(/\.m3u8(\?.*)?$/i, ".mp4$1")
-      .replace(/\.(webm|mkv|avi|mov)(\?.*)?$/i, ".mp4$2");
-  }
-  return url;
-};
-
     import { cn } from './utils/cn';
     import { uploadToCloudinary } from './cloudinary';
     import { supabase } from './supabase';
@@ -446,6 +433,18 @@ const ANIME_PROVIDERS = [
         if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
           return url.replace("/upload/", "/upload/sp_hd/").replace(/\.(mp4|webm|mkv|avi|mov)$/i, ".m3u8");
         }
+
+      const toMp4Url = (url: string): string => {
+        if (!url) return '';
+        if (url.includes("cloudinary.com") && url.includes("/video/upload/")) {
+          // strip /sp_hd/ transformation and force .mp4 extension
+          return url
+            .replace(/\/sp_hd\//g, "/")
+            .replace(/\.m3u8(\?.*)?$/i, ".mp4$1")
+            .replace(/\.(webm|mkv|avi|mov)(\?.*)?$/i, ".mp4$2");
+        }
+        return url;
+      };
         return url;
       };
       const [isPlaying, setIsPlaying] = useState(false);
@@ -568,11 +567,6 @@ const ANIME_PROVIDERS = [
         const video = videoRef.current;
         if (!video || !currentVideoSrc) return;
 
-        // Reset video element fully (fixes re-play issue)
-        try { video.pause(); } catch {}
-        video.removeAttribute('src');
-        try { video.load(); } catch {}
-
         let hls: Hls | null = null;
         const mp4Fallback = toMp4Url(currentVideoSrc);
 
@@ -607,7 +601,7 @@ const ANIME_PROVIDERS = [
       useEffect(() => {
         const handlePopState = (e: PopStateEvent) => {
           const nav = e.state?.nav || 'home';
-          if (showVideoPlayer) { setShowVideoPlayer(false); setCurrentVideoSrc('');  setIsPlaying(false); setCurrentEpisode(null); window.history.pushState({ nav }, '', '#' + encodeURIComponent(nav)); return; }
+          if (showVideoPlayer) { setShowVideoPlayer(false); setIsPlaying(false); setCurrentEpisode(null); window.history.pushState({ nav }, '', '#' + encodeURIComponent(nav)); return; }
           if (showEpisodeManager) { setShowEpisodeManager(false); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
           if (showUploadModal) { setShowUploadModal(false); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
           if (showEditModal) { setShowEditModal(false); setEditingMedia(null); window.history.pushState({ nav: activeNav }, '', '#' + encodeURIComponent(activeNav)); return; }
@@ -1417,7 +1411,7 @@ const isSelectedSeries = useMemo(() => {
           {/* ── Video Player ── */}
           {showVideoPlayer && selectedMedia && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black p-0 sm:p-4">
-              <button onClick={() => { setShowVideoPlayer(false); setCurrentVideoSrc('');  setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); }}
+              <button onClick={() => { setShowVideoPlayer(false); setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); }}
                 className="absolute top-4 right-4 z-50 w-12 h-12 bg-gray-800/80 rounded-full flex items-center justify-center hover:bg-gray-700">
                 <CloseIcon />
               </button>
