@@ -28,16 +28,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Fukrey">
-    <script type="module" crossorigin src="/gang/assets/index-CJeKVDvU.js"></script>
-    <link rel="stylesheet" crossorigin href="/gang/assets/index-BV2_-Ru0.css">
   </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/src/main.tsx?v=1779249586"></script>
   
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          navigator.serviceWorker.register('/gang/sw.js')
             .then(r => console.log('SW registered:', r.scope))
             .catch(e => console.log('SW failed:', e));
         });

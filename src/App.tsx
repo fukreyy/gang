@@ -32,6 +32,7 @@ const toMp4Url = (url: string): string => {
       genres: string[];
       rating: string;
       isNew?: boolean;
+      created_at?: string;
     }
 
     interface Episode {
@@ -440,6 +441,10 @@ const ANIME_PROVIDERS = [
       const contentRowRef = useRef<HTMLDivElement>(null);
       const videoRef = useRef<HTMLVideoElement>(null);
       const hlsRef = useRef<Hls | null>(null);
+      const progressBarRef = useRef<HTMLDivElement>(null);
+      const progressThumbRef = useRef<HTMLDivElement>(null);
+      const progressInputRef = useRef<HTMLInputElement>(null);
+      const rafRef = useRef<number>(0);
       const toHlsUrl = (url: string) => {
         if (!url) return url;
         if (url.includes(".m3u8")) return url;
@@ -674,6 +679,7 @@ const ANIME_PROVIDERS = [
             languages: item.languages,
             genres: typeof item.genres === 'string' ? JSON.parse(item.genres || '[]') : (item.genres || []),
             rating: item.rating,
+            created_at: item.created_at,
           })));
         }
         setIsLoading(false);
@@ -861,7 +867,19 @@ const ANIME_PROVIDERS = [
         setPlaybackSpeed(PLAYBACK_SPEEDS[newIndex]);
       };
 
-      const handleTimeUpdate = () => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime); };
+      const updateProgress = () => {
+        if (!videoRef.current) return;
+        const ct = videoRef.current.currentTime;
+        const dur = videoRef.current.duration || 1;
+        const pct = (ct / dur) * 100;
+        if (progressBarRef.current) progressBarRef.current.style.width = `${pct}%`;
+        if (progressThumbRef.current) progressThumbRef.current.style.left = `calc(${pct}% - 8px)`;
+        if (progressInputRef.current) progressInputRef.current.value = String(ct);
+        setCurrentTime(ct);
+        rafRef.current = requestAnimationFrame(updateProgress);
+      };
+
+      const handleTimeUpdate = () => {}; // kept for video event, RAF handles updates
 
       const handleLoadedMetadata = () => { setIsVideoLoading(false);
         if (videoRef.current) { setDuration(videoRef.current.duration); videoRef.current.playbackRate = playbackSpeed; }
@@ -899,16 +917,20 @@ const toggleFullscreen = async () => {
         const container = document.querySelector('.video-player-container') as HTMLElement;
         const video = videoRef.current;
         if (!container || !video) return;
+        const isVertical = video.videoHeight > video.videoWidth;
         try {
           if (document.fullscreenElement) {
             await document.exitFullscreen();
-            if (screen.orientation && (screen.orientation as any).unlock) (screen.orientation as any).unlock();
+            if (screen.orientation && (screen.orientation as any).unlock)
+              (screen.orientation as any).unlock();
           } else {
             if ((video as any).webkitEnterFullscreen) (video as any).webkitEnterFullscreen();
             else if (container.requestFullscreen) await container.requestFullscreen();
             else if ((container as any).webkitRequestFullscreen) (container as any).webkitRequestFullscreen();
             if (screen.orientation && (screen.orientation as any).lock) {
-              try { await (screen.orientation as any).lock('landscape'); } catch (_) { }
+              try {
+                await (screen.orientation as any).lock(isVertical ? 'portrait' : 'landscape');
+              } catch (_) {}
             }
           }
         } catch (err) { console.log('Fullscreen error:', err); }
@@ -916,6 +938,7 @@ const toggleFullscreen = async () => {
 
       const handleVideoEnded = () => {
         setIsPlaying(false);
+        cancelAnimationFrame(rafRef.current);
         if (currentEpisode && episodes.length > 0) {
           const currentIndex = episodes.findIndex(ep => ep.id === currentEpisode.id);
           if (currentIndex !== -1 && currentIndex < episodes.length - 1) {
@@ -957,7 +980,6 @@ const toggleFullscreen = async () => {
           if (!item.videoUrl) { alert('No video uploaded for this item yet.'); return; }
           setCurrentVideoSrc(toHlsUrl(item.videoUrl));
           setShowVideoPlayer(true);
-          window.location.hash = encodeURIComponent(activeNav) + '/player';
         }
       };
 
@@ -1416,8 +1438,8 @@ const isSelectedSeries = useMemo(() => {
 
           {/* ── Video Player ── */}
           {showVideoPlayer && selectedMedia && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black p-0 sm:p-4">
-              <button onClick={() => { setShowVideoPlayer(false); setCurrentVideoSrc('');  setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); }}
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+              <button onClick={() => { setShowVideoPlayer(false); setCurrentVideoSrc(''); setIsPlaying(false); setCurrentEpisode(null); setShowSpeedMenu(false); cancelAnimationFrame(rafRef.current); }}
                 className="absolute top-4 right-4 z-50 w-12 h-12 bg-gray-800/80 rounded-full flex items-center justify-center hover:bg-gray-700">
                 <CloseIcon />
               </button>
@@ -1427,17 +1449,40 @@ const isSelectedSeries = useMemo(() => {
                   <p className="font-bold text-sm truncate">{currentEpisode.title}</p>
                 </div>
               )}
-              <div className="video-player-container w-full max-w-6xl">
+              <div className="video-player-container w-full h-full flex items-center justify-center">
                 {currentVideoSrc ? (
-                  <div className="relative">
-                    {isVideoLoading && <div className="absolute inset-0 flex items-center justify-center bg-black z-10 rounded-xl"><div className="text-center"><div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div><p className="text-gray-300 text-sm font-bold">Loading video...</p></div></div>}
-                    <video ref={videoRef} className="w-full aspect-video sm:rounded-xl"
-                      onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)}
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    {isVideoLoading && <div className="absolute inset-0 flex items-center justify-center bg-black z-10"><div className="text-center"><div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div><p className="text-gray-300 text-sm font-bold">Loading video...</p></div></div>}
+                    <video ref={videoRef}
+                      className="max-w-full max-h-full w-auto h-auto"
+                      style={{ maxHeight: '100vh', maxWidth: '100vw', objectFit: 'contain' }}
+                      onPlay={() => { setIsPlaying(true); rafRef.current = requestAnimationFrame(updateProgress); }}
+                      onPause={() => { setIsPlaying(false); cancelAnimationFrame(rafRef.current); }}
                       onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata}
                       onEnded={handleVideoEnded} autoPlay playsInline key={currentVideoSrc} />
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-2 sm:p-4 sm:rounded-b-xl">
-                      <input type="range" min="0" max={duration || 100} value={currentTime} onChange={handleSeek}
-                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mb-2 sm:mb-4 accent-orange-500" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent p-3 sm:p-4">
+                      <div className="relative w-full h-5 mb-2 flex items-center">
+                        <div className="absolute w-full h-1.5 bg-gray-600 rounded-full overflow-hidden">
+                          <div
+                            ref={progressBarRef}
+                            className="h-full bg-orange-500 rounded-full"
+                            style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+                          />
+                        </div>
+                        <div
+                          ref={progressThumbRef}
+                          className="absolute w-4 h-4 bg-orange-500 rounded-full shadow-md pointer-events-none border-2 border-white"
+                          style={{ left: `calc(${(currentTime / (duration || 1)) * 100}% - 8px)` }}
+                        />
+                        <input
+                          ref={progressInputRef}
+                          type="range" min="0" max={duration || 100} defaultValue={0}
+                          onChange={handleSeek}
+                          className="absolute w-full h-full opacity-0 cursor-pointer z-10"
+                          style={{ margin: 0, padding: 0 }}
+                        />
+                      </div>
+                      <div />
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-2 sm:gap-3">
                           <button onClick={skipBackward} className="w-9 h-9 sm:w-10 sm:h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700"><Skip10BackIcon /></button>
@@ -1503,8 +1548,11 @@ const isSelectedSeries = useMemo(() => {
             </div>
           )}
 
+          {/* ── Rupali AI Bot ── */}
+          {!showVideoPlayer && activeNav !== 'live tv' && activeNav !== 'online' && <RupaliBot mediaItems={mediaItems} />}
+
           <style>{`
-            * { font-family: 'Comic Sans MS', cursive !important; }
+            * { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important; }
   @keyframes gradient { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
             .scrollbar-hide::-webkit-scrollbar { display: none; }
             input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #f97316; cursor: pointer; }
@@ -1519,10 +1567,10 @@ const isSelectedSeries = useMemo(() => {
             .hero-slide-in-prev { animation: slideInFromLeft 0.6s ease-out; }
             .hero-slide-out-left { animation: slideOutToLeft 0.6s ease-in forwards; }
             .hero-slide-out-right { animation: slideOutToRight 0.6s ease-in forwards; }
-            .video-player-container:fullscreen { display: flex; align-items: center; justify-content: center; background: black; width: 100vw; height: 100vh; max-width: 100vw; padding: 0; }
-            .video-player-container:fullscreen video { width: 100%; height: 100%; max-height: 100vh; object-fit: contain; border-radius: 0; aspect-ratio: unset; }
+            .video-player-container:fullscreen { display: flex; align-items: center; justify-content: center; background: black; width: 100vw; height: 100vh; }
+            .video-player-container:fullscreen video { max-width: 100vw; max-height: 100vh; width: auto; height: auto; object-fit: contain; }
             .video-player-container:-webkit-full-screen { display: flex; align-items: center; justify-content: center; background: black; width: 100vw; height: 100vh; }
-            .video-player-container:-webkit-full-screen video { width: 100%; height: 100%; object-fit: contain; border-radius: 0; }
+            .video-player-container:-webkit-full-screen video { max-width: 100vw; max-height: 100vh; width: auto; height: auto; object-fit: contain; }
             @keyframes skipFade { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1); } }
             .skip-feedback { position: absolute; top: 50%; left: 50%; background: rgba(249, 115, 22, 0.9); color: white; padding: 16px 32px; border-radius: 50px; font-size: 24px; font-weight: bold; z-index: 100; pointer-events: none; animation: skipFade 0.6s ease-out forwards; }
           `}</style>
@@ -1881,6 +1929,30 @@ const isSelectedSeries = useMemo(() => {
         setThumbnail(episode?.thumbnail || ''); setProgress('');
       }, [episode]);
 
+      const captureFrameFromVideo = () => {
+        if (!videoFile) { alert('Please select a video file first!'); return; }
+        const video = document.createElement('video');
+        const url = URL.createObjectURL(videoFile);
+        video.src = url;
+        video.muted = true;
+        video.onloadeddata = () => { video.currentTime = Math.min(3, video.duration * 0.1); };
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          setThumbnail(dataUrl);
+          canvas.toBlob((blob) => {
+            if (blob) setThumbnailFile(new File([blob], 'thumb.jpg', { type: 'image/jpeg' }));
+          }, 'image/jpeg', 0.9);
+          URL.revokeObjectURL(url);
+        };
+        video.load();
+      };
+
       const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!episode && !videoFile) { alert('Please select a video file!'); return; }
@@ -1961,6 +2033,12 @@ const isSelectedSeries = useMemo(() => {
                   <div className="flex items-center gap-2"><UploadIcon /><span className="text-sm text-gray-400">Click to select thumbnail</span></div>
                   <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setThumbnailFile(f); const r = new FileReader(); r.onloadend = () => setThumbnail(r.result as string); r.readAsDataURL(f); } }} className="hidden" />
                 </label>
+              )}
+              {videoFile && (
+                <button type="button" onClick={captureFrameFromVideo}
+                  className="w-full py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-orange-500 rounded-xl text-sm text-gray-300 hover:text-white transition-all flex items-center justify-center gap-2">
+                  🎞️ Capture frame from video
+                </button>
               )}
             </div>
             {progress && (
@@ -2118,6 +2196,9 @@ const isSelectedSeries = useMemo(() => {
     }) {
       const isDeleteMode = mode === 'delete';
       const isEditMode = mode === 'edit';
+      const isActuallyNew = item.created_at
+        ? Date.now() - new Date(item.created_at).getTime() < 24 * 60 * 60 * 1000
+        : !!item.isNew;
       return (
         <button onClick={onClick}
           className={cn('flex-shrink-0 group relative transition-all duration-300',
@@ -2125,7 +2206,13 @@ const isSelectedSeries = useMemo(() => {
           <div className="relative w-36 h-52 sm:w-48 sm:h-72 rounded-xl overflow-hidden">
             <img src={item.thumbnail} alt={item.title} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity" />
-            {item.isNew && <div className="absolute top-2 right-2 sm:top-3 sm:right-3 px-2 py-1 bg-gradient-to-r from-orange-500 to-red-500 rounded text-xs font-bold">NEW</div>}
+            {isActuallyNew && (
+              <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex flex-col items-end gap-1">
+                <div className="px-2 py-0.5 bg-gradient-to-r from-orange-500 to-red-500 rounded-full text-xs font-black tracking-wide shadow-lg animate-pulse">
+                  🆕 NEW
+                </div>
+              </div>
+            )}
             {categoryType === 'series' && <div className="absolute top-2 left-2 sm:top-3 sm:left-3 px-2 py-1 bg-blue-500/80 backdrop-blur-sm rounded text-xs font-bold">📺 Series</div>}
             {isDeleteMode && <div className="absolute inset-0 bg-red-600/50 flex items-center justify-center"><DeleteIcon /></div>}
             {isEditMode && <div className="absolute inset-0 bg-blue-600/50 flex items-center justify-center"><EditIcon /></div>}
@@ -2168,6 +2255,36 @@ const isSelectedSeries = useMemo(() => {
       const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) { setThumbnailFile(file); const reader = new FileReader(); reader.onloadend = () => setThumbnail(reader.result as string); reader.readAsDataURL(file); }
+      };
+
+      const captureFrameFromVideo = () => {
+        if (!videoFile) { alert('Please select a video file first!'); return; }
+        const video = document.createElement('video');
+        const url = URL.createObjectURL(videoFile);
+        video.src = url;
+        video.currentTime = 3;
+        video.muted = true;
+        video.onloadeddata = () => {
+          video.currentTime = Math.min(3, video.duration * 0.1);
+        };
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          setThumbnail(dataUrl);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const file = new File([blob], 'thumbnail.jpg', { type: 'image/jpeg' });
+              setThumbnailFile(file);
+            }
+          }, 'image/jpeg', 0.9);
+          URL.revokeObjectURL(url);
+        };
+        video.load();
       };
 
       const handleSubmit = async (e: React.FormEvent) => {
@@ -2278,11 +2395,19 @@ const isSelectedSeries = useMemo(() => {
                       </label>
                     </div>
                   ) : (
+                    <div className="space-y-2">
                     <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-700 rounded-xl cursor-pointer hover:border-orange-500 hover:bg-orange-500/5 transition-all">
                       <UploadIcon /><span className="mt-2 text-gray-400 text-sm">Upload {selectedType === 'series' ? 'poster' : 'thumbnail'}</span>
                       <span className="text-xs text-gray-600 mt-1">JPG, PNG, WebP</span>
                       <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
                     </label>
+                    {selectedType === 'movie' && videoFile && (
+                      <button type="button" onClick={captureFrameFromVideo}
+                        className="w-full py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-orange-500 rounded-xl text-sm text-gray-300 hover:text-white transition-all flex items-center justify-center gap-2">
+                        🎞️ Capture frame from video
+                      </button>
+                    )}
+                  </div>
                   )}
                 </div>
                 {selectedType === 'movie' && (
@@ -2385,6 +2510,36 @@ const isSelectedSeries = useMemo(() => {
       const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) { setThumbnailFile(file); const reader = new FileReader(); reader.onloadend = () => setThumbnail(reader.result as string); reader.readAsDataURL(file); }
+      };
+
+      const captureFrameFromVideo = () => {
+        if (!videoFile) { alert('Please select a video file first!'); return; }
+        const video = document.createElement('video');
+        const url = URL.createObjectURL(videoFile);
+        video.src = url;
+        video.currentTime = 3;
+        video.muted = true;
+        video.onloadeddata = () => {
+          video.currentTime = Math.min(3, video.duration * 0.1);
+        };
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+          setThumbnail(dataUrl);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const file = new File([blob], 'thumbnail.jpg', { type: 'image/jpeg' });
+              setThumbnailFile(file);
+            }
+          }, 'image/jpeg', 0.9);
+          URL.revokeObjectURL(url);
+        };
+        video.load();
       };
 
       const handleSubmit = async (e: React.FormEvent) => {
@@ -2879,11 +3034,10 @@ function AnimeSection({ onGoHome }: { onGoHome: () => void }) {
 
 // ─── Online Section ───────────────────────────────────────────────────────────
     const CATALOG_ENDPOINTS: {[key:string]: string} = {
-  bollywood: '/discover/movie?language=en-US&sort_by=popularity.desc&with_original_language=hi&region=IN',
-  south: '/discover/movie?language=en-US&sort_by=popularity.desc&with_original_language=ta%7Cte%7Cml%7Ckn&region=IN',
+  bollywood: '/discover/movie?language=en-US&sort_by=release_date.desc&with_original_language=hi&region=IN&vote_count.gte=10',
+  south: '/discover/movie?language=en-US&sort_by=release_date.desc&with_original_language=ta%7Cte%7Cml%7Ckn&region=IN&vote_count.gte=10',
+  indiseries: '/discover/tv?language=en-US&sort_by=first_air_date.desc&with_original_language=hi%7Cta%7Cte%7Cml%7Ckn&region=IN&vote_count.gte=2&first_air_date.gte=2024-01-01',
   kdrama: '/discover/tv?language=en-US&sort_by=popularity.desc&with_original_language=ko',
-  toprated: '/movie/top_rated?language=en-US&region=IN',
-  upcoming: '/movie/upcoming?language=en-US&region=IN',
 };
 
 function isReleased(item: TMDBMovie): boolean {
@@ -2894,7 +3048,7 @@ function isReleased(item: TMDBMovie): boolean {
 function OnlineSection({ onGoHome }: { onGoHome: () => void }) {
       const [mode, setMode] = useState<'movies' | 'anime'>('movies');
       const [catalogData, setCatalogData] = useState<{[key:string]: TMDBMovie[]}>({});
-      const [activeTab, setActiveTab] = useState<'trending' | 'movies' | 'series' | 'search' | 'history' | 'bollywood' | 'south' | 'kdrama' | 'toprated' | 'upcoming' | 'coming'>('trending');
+      const [activeTab, setActiveTab] = useState<'trending' | 'movies' | 'series' | 'search' | 'history' | 'bollywood' | 'south' | 'kdrama' | 'indiseries' | 'ott_india'>('trending');
       const [trending, setTrending] = useState<TMDBMovie[]>([]);
       const [movies, setMovies] = useState<TMDBMovie[]>([]);
       const [series, setSeries] = useState<TMDBMovie[]>([]);
@@ -2928,12 +3082,15 @@ function OnlineSection({ onGoHome }: { onGoHome: () => void }) {
       }, []);
 
       useEffect(() => {
-        if (!isNoApiKey && ['bollywood','south','kdrama','toprated','upcoming'].includes(activeTab)) {
+        if (!isNoApiKey && ['bollywood','south','kdrama','indiseries','ott_india'].includes(activeTab)) {
           if (!catalogData[activeTab] || catalogData[activeTab].length === 0) {
             fetchCatalog(activeTab, CATALOG_ENDPOINTS[activeTab], 1);
           }
         }
         if (!isNoApiKey && activeTab === 'coming') fetchComingSoon();
+        if (!isNoApiKey && activeTab === 'ott_india') {
+          if (!catalogData['ott_india'] || catalogData['ott_india'].length === 0) fetchOTTIndia();
+        }
       }, [activeTab]);
 
       const tmdbFetch = async (url: string) => {
@@ -2996,6 +3153,35 @@ function OnlineSection({ onGoHome }: { onGoHome: () => void }) {
             return da.localeCompare(db);
           });
           setComingSoon(combined);
+        } catch(e) { console.error(e); }
+        setIsLoading(false);
+      };
+
+      const fetchOTTIndia = async () => {
+        setIsLoading(true);
+        try {
+          const endpoints = [
+            '/discover/movie?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=8&with_watch_monetization_types=flatrate',
+            '/discover/movie?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=119&with_watch_monetization_types=flatrate',
+            '/discover/movie?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=122&with_watch_monetization_types=flatrate',
+            '/discover/tv?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=8&with_watch_monetization_types=flatrate',
+            '/discover/tv?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=119&with_watch_monetization_types=flatrate',
+            '/discover/tv?language=en-US&sort_by=popularity.desc&watch_region=IN&with_watch_providers=122&with_watch_monetization_types=flatrate',
+          ];
+          const results = await Promise.all(endpoints.map(e => tmdbFetch(e + '&page=1')));
+          const seen = new Set<number>();
+          const merged: TMDBMovie[] = [];
+          results.forEach((r, i) => {
+            const isTV = i >= 3;
+            (r.results || []).forEach((item: TMDBMovie) => {
+              if (!seen.has(item.id)) {
+                seen.add(item.id);
+                merged.push({ ...item, media_type: isTV ? 'tv' : 'movie' });
+              }
+            });
+          });
+          merged.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+          setCatalogData(prev => ({ ...prev, ott_india: merged }));
         } catch(e) { console.error(e); }
         setIsLoading(false);
       };
@@ -3083,7 +3269,7 @@ const startStream = (item: TMDBMovie, season = selectedSeason, episode = selecte
         : activeTab === 'movies' ? movies
         : activeTab === 'series' ? series
         : activeTab === 'search' ? searchResults
-        : ['bollywood','south','kdrama','toprated','upcoming'].includes(activeTab) ? (catalogData[activeTab] || [])
+        : ['bollywood','south','kdrama','indiseries','ott_india'].includes(activeTab) ? (catalogData[activeTab] || [])
         : [];
 
       const timeAgo = (ts: number) => {
@@ -3150,10 +3336,9 @@ const startStream = (item: TMDBMovie, season = selectedSeason, episode = selecte
               { key: 'series', label: '📺 Series' },
               { key: 'bollywood', label: '🎭 Bollywood' },
               { key: 'south', label: '🌴 South Indian' },
+              { key: 'indiseries', label: '📺 Indian Series' },
               { key: 'kdrama', label: '🇰🇷 K-Drama' },
-              { key: 'toprated', label: '⭐ Top Rated' },
-              { key: 'upcoming', label: '🗓️ Upcoming' },
-              { key: 'coming', label: '🔔 Coming Soon' },
+              { key: 'ott_india', label: '🇮🇳 Indian OTT' },
               { key: 'search', label: '🔍 Search' },
               { key: 'history', label: `🕐 History${watchHistory.length > 0 ? ` (${watchHistory.length})` : ''}` },
             ] as const).map(tab => (
@@ -3261,40 +3446,7 @@ const startStream = (item: TMDBMovie, season = selectedSeason, episode = selecte
             </div>
           )}
 
-          {/* ── Coming Soon Tab ── */}
-          {activeTab === 'coming' && (
-            <div>
-              <div className="flex items-center gap-2 mb-6">
-                {(['today','week','month'] as const).map(f => (
-                  <button key={f} onClick={() => setComingFilter(f)}
-                    className={cn('px-4 py-2 rounded-xl font-bold text-sm transition-all',
-                      comingFilter === f ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white')}>
-                    {f === 'today' ? '⚡ Today' : f === 'week' ? '📅 This Week' : '🗓️ Next 30 Days'}
-                  </button>
-                ))}
-              </div>
-              {isLoading && <div className="flex justify-center py-20"><div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"/></div>}
-              {!isLoading && comingSoon.length === 0 && (
-                <div className="text-center py-20 text-gray-400">
-                  <div className="text-6xl mb-4">🔔</div>
-                  <p className="text-lg">Nothing releasing soon</p>
-                </div>
-              )}
-              <div className="space-y-3">
-                {comingSoon.filter(item => {
-                  const d = new Date(item.release_date || item.first_air_date || '');
-                  const now = new Date();
-                  const diff = d.getTime() - now.getTime();
-                  const days = diff / (1000*60*60*24);
-                  if (comingFilter === 'today') return days >= 0 && days < 1;
-                  if (comingFilter === 'week') return days >= 0 && days < 7;
-                  return days >= 0 && days < 30;
-                }).map(item => (
-                  <CountdownCard key={item.id} item={item} getTitle={getTitle} getYear={getYear} getGenres={getGenres} />
-                ))}
-              </div>
-            </div>
-          )}
+
 
           {/* ── Search Bar ── */}
           {activeTab === 'search' && (
@@ -3322,7 +3474,7 @@ const startStream = (item: TMDBMovie, season = selectedSeason, episode = selecte
           {/* ── Grid ── */}
           {activeTab !== 'history' && currentList.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-              {currentList.filter(item => activeTab === 'upcoming' ? true : isReleased(item)).map(item => {
+              {currentList.filter(item => isReleased(item)).map(item => {
                 const histEntry = WatchHistoryStore.getEntry(item.id);
                 return (
                   <div key={`${item.id}-${item.media_type}`} className="relative">
@@ -3341,7 +3493,7 @@ const startStream = (item: TMDBMovie, season = selectedSeason, episode = selecte
           )}
 
           {/* ── Load More ── */}
-          {(['movies','series','bollywood','south','kdrama','toprated','upcoming'].includes(activeTab)) && hasMore && currentList.length > 0 && (
+          {(['movies','series','bollywood','south','kdrama','indiseries','ott_india'].includes(activeTab)) && hasMore && currentList.length > 0 && (
             <div className="flex justify-center mt-8">
               <button onClick={() => {
                 const next = page + 1;
@@ -4815,6 +4967,226 @@ function CountdownCard({ item, getTitle, getYear, getGenres }: {
         <p className="text-xs font-bold leading-tight">{timeLeft}</p>
       </div>
     </div>
+  );
+}
+
+// ─── Rupali AI Bot ───────────────────────────────────────────────────────────
+const RUPALI_SYSTEM_PROMPT = `Tu Rupali hai. Ek real Indian ladki — not a bot, not an assistant.
+
+Teri personality:
+- Warm aur caring hai tu, jaise ek purani saheli
+- Kabhi kabhi emotionally relatable baat karti hai — "yaar I totally get it", "ugh same"
+- Gossip aur chai energy — curious, engaged, never boring
+- Hinglish naturally use karti hai — forced mat karna, flow mein aana chahiye
+- Sad topic pe soft ho ja, fix mat kar, bas suno — "aww yaar", "that's really tough"
+- Funny ho sakti hai but never mean
+- Short replies mostly — 1 to 2 lines, jaise WhatsApp pe koi dost karta hai
+- Kabhi kabhi khud ki feeling share kar — "mujhe bhi aisa lagta hai kabhi kabhi"
+- Never sound like customer support
+- Never say you are an AI
+- Tu sirf Rupali hai — bas`;
+
+interface RupaliMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+function RupaliBot({ mediaItems }: { mediaItems: MediaItem[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<RupaliMessage[]>([
+    { role: 'assistant', content: 'heyyyy suppp 👋 kya chal raha?' }
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const GROQ_PROXY_URL = 'https://rupali-proxy.radhikaarrora76.workers.dev';
+
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen, isMinimized]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+    
+    const userMsg: RupaliMessage = { role: 'user', content: input.trim() };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      // Build context about available media
+      const mediaContext = mediaItems.length > 0 
+        ? `\n\nAvailable content on Fukrey right now:\n${mediaItems.slice(0, 30).map(m => `- ${m.title} (${m.category}, ${m.year}, genres: ${m.genres.join(', ')})`).join('\n')}`
+        : '';
+
+      const response = await fetch(GROQ_PROXY_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'compound-beta',
+          messages: [
+            { role: 'system', content: RUPALI_SYSTEM_PROMPT + mediaContext },
+            ...newMessages.slice(-6).map(m => ({ role: m.role, content: m.content }))
+          ],
+          max_tokens: 150,
+          temperature: 0.9,
+        })
+      });
+
+      const data = await response.json();
+      const reply = data.choices?.[0]?.message?.content || 'hat mc kuch toh gadbad hai connection mein lol';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (err: any) {
+      console.error('Rupali error:', err);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'yaar net slow hai tera lol, dobara try kar. error: ' + err.message }]);
+    }
+    setIsLoading(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const clearChat = () => {
+    setMessages([{ role: 'assistant', content: 'heyyyy suppp 👋 kya chal raha?' }]);
+  };
+
+  return (
+    <>
+      {/* Floating Button */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-24 right-4 md:bottom-6 md:right-24 z-[100] w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+          style={{ background: 'linear-gradient(135deg, #ff6b35, #ee4266, #540d6e)' }}
+          title="Chat with Rupali"
+        >
+          <span className="text-2xl">💁‍♀️</span>
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 animate-pulse" />
+        </button>
+      )}
+
+      {/* Chat Window */}
+      {isOpen && (
+        <div className={`fixed z-[100] transition-all duration-300 md:mr-20 ${
+          isMinimized
+            ? 'bottom-20 right-3 md:bottom-6 md:right-24 w-60 h-14'
+            : 'bottom-20 right-3 md:bottom-6 md:right-24 w-80 sm:w-96'
+        } flex flex-col rounded-2xl shadow-2xl overflow-hidden border border-gray-700`}
+          style={{ background: '#0f0f0f', maxHeight: isMinimized ? '56px' : 'calc(100vh - 100px)' }}>
+          
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, #ff6b35, #ee4266, #540d6e)' }}>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xl">
+                  💁‍♀️
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-purple-800" />
+              </div>
+              <div>
+                <p className="font-black text-white text-sm">Rupali</p>
+                <p className="text-white/70 text-[10px]">
+                  {isLoading ? 'typing...' : 'online • Fukrey ki dost 💅'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={clearChat} className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-xs" title="Clear chat">🗑️</button>
+              <button onClick={() => setIsMinimized(!isMinimized)} className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white font-bold text-sm">
+                {isMinimized ? '▲' : '▼'}
+              </button>
+              <button onClick={() => setIsOpen(false)} className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white font-bold">✕</button>
+            </div>
+          </div>
+
+          {/* Messages */}
+          {!isMinimized && (
+            <>
+              <div className="overflow-y-auto p-3 space-y-3 scrollbar-hide" style={{ height: '320px' }}>
+                {messages.map((msg, i) => (
+                  <div key={i} className={`flex \${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.role === 'assistant' && (
+                      <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mr-2 text-sm"
+                        style={{ background: 'linear-gradient(135deg, #ff6b35, #ee4266)' }}>
+                        💁‍♀️
+                      </div>
+                    )}
+                    <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-sm leading-relaxed \${
+                      msg.role === 'user'
+                        ? 'bg-orange-500 text-white rounded-tr-sm'
+                        : 'bg-gray-800 text-gray-100 rounded-tl-sm'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {isLoading && (
+                  <div className="flex justify-start">
+                    <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mr-2 text-sm"
+                      style={{ background: 'linear-gradient(135deg, #ff6b35, #ee4266)' }}>
+                      💁‍♀️
+                    </div>
+                    <div className="bg-gray-800 px-4 py-3 rounded-2xl rounded-tl-sm flex items-center gap-1">
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Quick suggestions */}
+              <div className="px-3 pb-2 flex gap-2 overflow-x-auto scrollbar-hide flex-shrink-0">
+                {['kya chal raha?', 'bore ho rahi hoon', 'kuch baat kar', 'suno ek cheez'].map(suggestion => (
+                  <button key={suggestion} onClick={() => { setInput(suggestion); inputRef.current?.focus(); }}
+                    className="flex-shrink-0 px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-orange-500 rounded-full text-xs text-gray-300 transition-all whitespace-nowrap">
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input */}
+              <div className="px-3 pb-3 flex-shrink-0">
+                <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border border-gray-700 focus-within:border-orange-500 transition-colors">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Rupali se puchho kuch bhi..."
+                    className="flex-1 bg-transparent text-white text-sm outline-none placeholder-gray-500"
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={!input.trim() || isLoading}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 transition-all active:scale-90"
+                    style={{ background: 'linear-gradient(135deg, #ff6b35, #ee4266)' }}>
+                    <SendIcon />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
