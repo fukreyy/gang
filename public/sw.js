@@ -5,17 +5,18 @@ self.addEventListener('activate', e => e.waitUntil(
 self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
 
 self.addEventListener('push', e => {
-  let data = {};
-  try { data = e.data.json(); } catch (_) { data = { title: 'Fukrey', body: e.data ? e.data.text() : 'New update!' }; }
-  e.waitUntil(
-    self.registration.showNotification(data.title || 'Fukrey 🎬', {
-      body: data.body || '',
-      icon: data.icon || '/gang/icon.png',
-      badge: '/gang/icon.png',
-      data: data.data || {},
-      vibrate: [200, 100, 200],
-    })
-  );
+  let title = 'Fukrey 🎬';
+  let options = { body: 'New update!', icon: '/gang/icon.png', badge: '/gang/icon.png', vibrate: [200, 100, 200] };
+  try {
+    const data = e.data.json();
+    title = data.title || title;
+    options.body = data.body || options.body;
+    options.icon = data.icon || options.icon;
+    options.data = data.data || {};
+  } catch (_) {
+    try { options.body = e.data.text(); } catch (_) {}
+  }
+  e.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', e => {
